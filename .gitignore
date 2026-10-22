@@ -11,3 +11,4 @@ wrangler.local.toml
 playwright-report/
 test-results/
 python_modules/
+.ralph/
