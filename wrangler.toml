@@ -6,7 +6,7 @@ compatibility_flags = ["python_workers"]
 
 # No public ingress by default. Deploying this Worker will not create a
 # workers.dev URL, preview URLs are disabled, and no route/custom domain is set.
-workers_dev = false
+workers_dev = true
 preview_urls = false
 keep_vars = true
 
@@ -27,7 +27,7 @@ MCP_ALLOWED_ORIGINS = ""
 [[d1_databases]]
 binding = "DECISIONS_DB"
 database_name = "alexa-decisions"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "d9d7b63b-0f15-4777-8d67-948c9d472b0b"
 migrations_dir = "migrations"
 
 [limits]
