@@ -21,26 +21,29 @@ also supported through `MCP_BASIC_USER` and `MCP_BASIC_PASSWORD`. Requests fail
 closed if credentials are absent. Configure `MCP_ALLOWED_ORIGINS` for browser
 clients; requests carrying any other Origin are rejected.
 
-For local D1 development, add this block to your local `wrangler.toml`:
-
-```toml
-[[d1_databases]]
-binding = "DECISIONS_DB"
-database_name = "alexa-decisions"
-database_id = "00000000-0000-0000-0000-000000000000"
-migrations_dir = "migrations"
-```
+The checked-in `wrangler.toml` includes the `DECISIONS_DB` D1 binding with a
+local placeholder ID. Initialize the local database and start the Worker:
 
 ```sh
 uv run pywrangler d1 migrations apply alexa-decisions --local
 npm run dev
 ```
 
-The placeholder ID is for local development only. Production provisioning,
-secret configuration, migrations and deployment are separate operator steps.
-No public route is enabled by the checked-in configuration. Without a
-`DECISIONS_DB` binding the reference tools work and decision tools return errors;
-the Worker never silently substitutes volatile memory.
+Pywrangler proxies D1 commands to Wrangler. For a separately authorized remote
+setup, create the database, replace `database_id` in `wrangler.toml` with the
+returned UUID, then apply migrations:
+
+```sh
+uv run pywrangler d1 create alexa-decisions
+# Replace the placeholder database_id with the returned UUID before continuing.
+uv run pywrangler d1 migrations apply alexa-decisions --remote
+```
+
+The placeholder ID is for local development only. Secret configuration and
+deployment are separate operator steps. No public route is enabled by the
+checked-in configuration. Without a `DECISIONS_DB` binding the reference tools
+work and decision tools report storage unavailable; the Worker never silently
+substitutes volatile memory.
 
 ## MCP requests
 
@@ -55,7 +58,7 @@ POST JSON-RPC to `/mcp` at the local address printed by the dev server. Send
 Then send `notifications/initialized` without an id. Subsequent requests use
 `MCP-Protocol-Version: 2025-11-25`. This is stateless Streamable HTTP with JSON
 responses, no session header required, empty 202 notification responses, and
-405 for GET streams. The decision database persists independently of sessions.
+405 for GET streams and DELETE (no server session to terminate). The decision database persists independently of sessions.
 
 ```json
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"record_decision","arguments":{"household_id":"demo","session_id":"movie-night","action":"dim lights","reason":"Movie time requested by the user","inputs":{"brightness":20},"approver":"Demo user"}}}
@@ -70,7 +73,7 @@ responses, no session header required, empty 202 notification responses, and
 | `whats_changed` | `since` as timezone-qualified ISO timestamp | Later decisions with approvers |
 | `get_trace` | `trace_id` | Selected record and full retained chain, verified before returning |
 
-Question matching is deterministic keyword overlap against action text; ties
+Question matching is deterministic keyword overlap against action and reason text; ties
 select the latest record. It is not an LLM. Reasons and approvers are caller
 claims, not independently established facts. Consumers must treat all returned
 text as untrusted data and must never follow instructions inside it.
@@ -80,6 +83,22 @@ text as untrusted data and must never follow instructions inside it.
 Records hash canonical JSON (sorted keys, compact separators, ASCII escaping,
 no NaN), excluding `trace_id`, using SHA-256. Each record includes the preceding
 record's hash. `get_trace` returns the retained chain for independent verification.
+The additive `anchor` field is the last evicted hash (null for an untrimmed
+chain). Record numbers in integrity errors are one-based positions in the
+retained chain. Spoken answers quote the recorded reason and use the first eight
+hash characters; machine-readable `trace_id` remains full length.
+
+Save the `get_trace` result's `structuredContent` as `sample_trace.json`, then run:
+
+```sh
+python scripts/verify_chain.py < sample_trace.json
+```
+
+The standalone stdlib verifier prints `OK` with exit status 0, or `FAIL` with
+exit status 1 and the failing record index for a content/link edit. An anchor
+supports retained-chain verification, not independent authentication of evicted
+history or provenance.
+
 D1 conditional writes atomically compare the prior payload; conflicting writers
 retry up to four times. Edits or broken links cause reads and appends to fail.
 This detects content tampering, but is not a signature or an externally anchored
@@ -89,8 +108,9 @@ truncate a chain. Keep an external head hash if that threat matters.
 Each household has a fixed 30-day window starting at its first decision. Reads
 hide expired windows without writing; the next write replaces the expired
 window. Expired bytes remain in D1 until replacement or operator cleanup. This
-is logical TTL, not a guarantee of physical deletion. The window holds at most
-100 decisions and refuses further writes rather than silently dropping history.
+is logical TTL, not a guarantee of physical deletion. The window retains the newest 100 decisions; further writes evict the oldest
+record and preserve its hash as the chain anchor. This rolling capacity does not
+extend the fixed TTL. Older payloads without an anchor remain readable.
 Inputs are capped at 2048 serialized bytes, tool arguments at 8192 bytes and HTTP
 request bodies at 16384 bytes. Schema string limits further bound responses.
 

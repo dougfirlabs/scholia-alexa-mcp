@@ -22,3 +22,10 @@ enabled = true
 # Comma-separated browser origins allowed to call /mcp with Authorization.
 # Non-browser MCP clients normally omit Origin and are unaffected.
 MCP_ALLOWED_ORIGINS = ""
+
+# Local placeholder; replace with the provisioned ID before remote migration.
+[[d1_databases]]
+binding = "DECISIONS_DB"
+database_name = "alexa-decisions"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"

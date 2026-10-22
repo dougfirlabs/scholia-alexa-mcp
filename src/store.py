@@ -15,14 +15,25 @@ def digest(value):
     return "sha256:" + hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-def verify(records, household):
-    previous = None
-    for record in records:
+class ChainBroken(ValueError):
+    pass
+
+
+def check_chain(records, household, anchor=None):
+    previous = anchor
+    for index, record in enumerate(records, 1):
         body = {key: value for key, value in record.items() if key != "trace_id"}
         if (body.get("household_id") != household or body.get("previous") != previous
                 or record.get("trace_id") != digest(body)):
-            return False
+            raise ChainBroken(f"Chain broken at record #{index}")
         previous = record["trace_id"]
+
+
+def verify(records, household, anchor=None):
+    try:
+        check_chain(records, household, anchor)
+    except ChainBroken:
+        return False
     return True
 
 
@@ -62,16 +73,18 @@ class D1Store:
         return await statement.first("household") is not None
 
 
-async def read_chain(store, household, now=None):
+async def read_snapshot(store, household, now=None):
     now = time.time() if now is None else now
     raw = await store.load(household)
     chain = json.loads(raw) if raw else None
     if chain is None or chain["expires_at"] <= now:
-        return []
-    records = chain["records"]
-    if not verify(records, household):
-        raise ValueError("Stored chain failed integrity verification")
-    return records
+        return {"records": [], "anchor": None}
+    check_chain(chain["records"], household, chain.get("anchor"))
+    return chain
+
+
+async def read_chain(store, household, now=None):
+    return (await read_snapshot(store, household, now))["records"]
 
 
 async def append(store, fields, now=None):
@@ -81,12 +94,9 @@ async def append(store, fields, now=None):
         old = await store.load(household)
         chain = json.loads(old) if old else None
         if chain is None or chain["expires_at"] <= now:
-            chain = {"expires_at": now + TTL_SECONDS, "records": []}
+            chain = {"expires_at": now + TTL_SECONDS, "records": [], "anchor": None}
         records = chain["records"]
-        if not verify(records, household):
-            raise ValueError("Stored chain failed integrity verification")
-        if len(records) >= MAX_RECORDS:
-            raise ValueError("Household retention window is full (100 decisions)")
+        check_chain(records, household, chain.get("anchor"))
         body = {**fields, "created_at": now, "expires_at": chain["expires_at"],
                 "previous": records[-1]["trace_id"] if records else None,
                 "atoms": [{"kind": "Action", "id": "Action_0001", "content": fields["action"]},
@@ -94,6 +104,8 @@ async def append(store, fields, now=None):
                            "references": ["Action_0001"]}]}
         record = {**body, "trace_id": digest(body)}
         records.append(record)
+        if len(records) > MAX_RECORDS:
+            chain["anchor"] = records.pop(0)["trace_id"]
         if await store.compare_swap(household, old, canonical(chain)):
             return record
     raise ValueError("Concurrent write conflict; retry the request")

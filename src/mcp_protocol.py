@@ -796,8 +796,10 @@ async def handle_rpc_message_async(message, store=None):
         try:
             result = await tools_alexa.call_tool(params["name"], params.get("arguments", {}), store)
             return rpc_result(message["id"], tool_result(json_dumps(result), result))
+        except (tools_alexa.DecisionNotFound, tools_alexa.ChainBroken) as exc:
+            return rpc_result(message["id"], tool_result(str(exc), is_error=True))
         except (ValueError, TypeError, RecursionError):
-            return rpc_result(message["id"], tool_result("Invalid input, missing decision, or unverifiable chain", is_error=True))
+            return rpc_result(message["id"], tool_result("Invalid input", is_error=True))
         except Exception:
             return rpc_result(message["id"], tool_result("Decision storage unavailable", is_error=True))
     return handle_rpc_message(message)

@@ -66,7 +66,7 @@ class Default(WorkerEntrypoint):
         try:
             raw_body = await request.text()
             if len(raw_body.encode("utf-8")) > 16384:
-                return json_response({"error": "payload_too_large"}, status=413)
+                return json_response({"error": "payload_too_large"}, status=413, headers=self._cors_headers(request))
             message = json.loads(raw_body)
         except Exception:
             payload = rpc_error(None, JSONRPC_PARSE_ERROR, "Parse error")
