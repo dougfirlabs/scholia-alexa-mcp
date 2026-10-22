@@ -1,0 +1,16 @@
+{
+  "name": "scholialang-mcp-worker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "dev": "uv run pywrangler dev",
+    "deploy": "uv run pywrangler deploy",
+    "secret:token": "uv run pywrangler secret put MCP_AUTH_TOKEN",
+    "test": "python3 -m unittest discover -s tests",
+    "typegen": "uv run pywrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4.95.0"
+  }
+}

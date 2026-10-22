@@ -1,0 +1,3 @@
+# Copy to .dev.vars for local development. Do not commit .dev.vars.
+MCP_AUTH_TOKEN=replace-with-a-long-random-local-token
+MCP_ALLOWED_ORIGINS=http://localhost:8787

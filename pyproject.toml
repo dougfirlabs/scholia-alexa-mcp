@@ -1,0 +1,14 @@
+[project]
+name = "scholialang-mcp-worker"
+version = "0.1.0"
+description = "Password-protected Scholialang MCP server for Cloudflare Python Workers."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT OR Apache-2.0"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk",
+]
