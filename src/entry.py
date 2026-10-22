@@ -2,12 +2,13 @@ import json
 from urllib.parse import urlparse
 
 from workers import Response, WorkerEntrypoint
+from store import D1Store
 
 from mcp_protocol import (
     JSONRPC_PARSE_ERROR,
     SUPPORTED_PROTOCOL_VERSIONS,
     authorize_header,
-    handle_rpc_message,
+    handle_rpc_message_async,
     json_dumps,
     origin_allowed,
     rpc_error,
@@ -59,12 +60,16 @@ class Default(WorkerEntrypoint):
 
         try:
             raw_body = await request.text()
+            if len(raw_body.encode("utf-8")) > 16384:
+                return json_response({"error": "payload_too_large"}, status=413)
             message = json.loads(raw_body)
         except Exception:
             payload = rpc_error(None, JSONRPC_PARSE_ERROR, "Parse error")
             return json_response(payload, status=400, headers=self._cors_headers(request))
 
-        response_message = handle_rpc_message(message)
+        binding = getattr(self.env, "DECISIONS_DB", None)
+        store = D1Store(binding) if binding is not None else None
+        response_message = await handle_rpc_message_async(message, store)
         if response_message is None:
             return text_response("", status=202, headers=self._cors_headers(request))
         return json_response(response_message, headers=self._cors_headers(request))
