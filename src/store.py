@@ -16,7 +16,10 @@ def digest(value):
 
 
 class ChainBroken(ValueError):
-    pass
+    def __init__(self, index, action):
+        super().__init__(f"Chain broken at record #{index}")
+        self.index = index
+        self.action = action
 
 
 def check_chain(records, household, anchor=None):
@@ -25,7 +28,7 @@ def check_chain(records, household, anchor=None):
         body = {key: value for key, value in record.items() if key != "trace_id"}
         if (body.get("household_id") != household or body.get("previous") != previous
                 or record.get("trace_id") != digest(body)):
-            raise ChainBroken(f"Chain broken at record #{index}")
+            raise ChainBroken(index, body.get("action", "Unknown action"))
         previous = record["trace_id"]
 
 

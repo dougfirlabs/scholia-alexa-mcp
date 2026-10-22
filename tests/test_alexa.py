@@ -114,6 +114,9 @@ class DecisionTests(unittest.IsolatedAsyncioTestCase):
             error = (await call(store, name, args))["result"]
             self.assertTrue(error["isError"])
             self.assertEqual(error["content"][0]["text"], "Chain broken at record #3")
+            self.assertEqual(error["structuredContent"], {
+                "verified": False, "broken_record": {"index": 3, "action": stored["records"][2]["action"]},
+            })
 
     async def test_quotes_reason_matching_and_distinct_errors(self):
         store = MemoryStore()

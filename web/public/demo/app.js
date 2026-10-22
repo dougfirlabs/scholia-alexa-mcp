@@ -22,7 +22,11 @@ async function rpc(method, params, notification = false) {
 }
 async function tool(name, args) {
   const result = await rpc('tools/call', {name, arguments: {household_id: household, ...args}});
-  if (result.isError) throw new Error(result.content?.[0]?.text || 'Tool failed.');
+  if (result.isError) {
+    const error = new Error(result.content?.[0]?.text || 'Tool failed.');
+    error.verification = result.structuredContent;
+    throw error;
+  }
   return result.structuredContent;
 }
 function controls() {
@@ -44,6 +48,25 @@ function card(text, user = false) {
   $('messages').append(article); article.scrollIntoView({block: 'nearest'});
   return article;
 }
+function verificationCard(message, failed, result) {
+  for (const previous of document.querySelectorAll('.verification')) previous.remove();
+  const article = document.createElement('article');
+  article.className = `verification ${failed ? 'verification-failed' : 'verification-passed'}`;
+  article.setAttribute('role', failed ? 'alert' : 'status');
+  article.setAttribute('aria-atomic', 'true');
+  const heading = document.createElement('p'); heading.className = 'verification-heading';
+  const icon = document.createElement('span'); icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = failed ? '⚠ ' : '✓ ';
+  heading.append(icon, document.createTextNode(message)); article.append(heading);
+  const note = document.createElement('p'); note.textContent = 'This is not proof of authorship.'; article.append(note);
+  if (result) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary'); summary.textContent = `Verified by server · ${result.chain.length} linked decisions`;
+    const pre = document.createElement('pre'); pre.textContent = JSON.stringify(result, null, 2);
+    details.append(summary, pre); article.append(details);
+  }
+  $('messages').append(article); article.scrollIntoView({block: 'nearest'});
+}
 function trail(article, trace, approver) {
   const label = document.createElement('span'); label.className = 'trace';
   label.textContent = `Recorded approver: ${approver} · ${trace}`; article.append(label);
@@ -55,14 +78,16 @@ function trail(article, trace, approver) {
     try {
       const result = await tool('get_trace', {trace_id: trace});
       if (result.verified !== true) throw new Error('Chain verification failed.');
-      let details = article.querySelector('details');
-      if (!details) { details = document.createElement('details'); article.append(details); }
-      details.replaceChildren();
-      const summary = document.createElement('summary'); summary.textContent = `Verified by server · ${result.chain.length} linked decisions`;
-      const pre = document.createElement('pre'); pre.textContent = JSON.stringify(result, null, 2);
-      details.append(summary, pre); details.open = true;
+      verificationCard(`Verified — ${result.chain.length} linked decisions, chain intact`, false, result);
       $('status').textContent = 'Retained chain verified. This is not proof of authorship.';
-    } catch (error) { $('status').textContent = error.message; }
+    } catch (error) {
+      const broken = error.verification?.broken_record;
+      const message = broken
+        ? `Tampered — chain broken at record #${broken.index}: ${broken.action}`
+        : `Verification failed — ${error.message}`;
+      verificationCard(message, true);
+      $('status').textContent = message;
+    }
     finally { busy = false; controls(); }
   });
   article.append(link);

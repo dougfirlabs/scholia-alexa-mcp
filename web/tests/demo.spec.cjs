@@ -7,7 +7,7 @@ const evidenceDir = process.env.DEMO_EVIDENCE_DIR || 'docs';
 fs.mkdirSync(evidenceDir, {recursive: true});
 const turns = ['Reorder coffee', 'Why did you reorder coffee?', 'Change the evening routine', 'Why did you change the evening routine?', 'Book a cleaner', 'Why did you book a cleaner?', 'What changed this week?'];
 
-for (const viewport of [{width: 1440, height: 1100}, {width: 390, height: 844}]) {
+for (const viewport of [{width: 1920, height: 1080}, {width: 1440, height: 1100}, {width: 390, height: 844}]) {
   test(`seven turns and verification at ${viewport.width}px`, async ({page}) => {
     const errors = [], failedRequests = [], calls = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -38,7 +38,30 @@ for (const viewport of [{width: 1440, height: 1100}, {width: 390, height: 844}])
     await expect(page.locator('#activity li')).toHaveCount(3);
     await page.getByRole('link', {name: 'Verify decision trail →'}).last().click();
     await expect(page.getByText('Verified by server · 3 linked decisions')).toBeVisible();
+    await page.getByText('Verified by server · 3 linked decisions').click();
     await expect(page.locator('pre')).toContainText('"verified": true');
+    await page.route('**/mcp', route => {
+      const body = route.request().postDataJSON();
+      if (body.params?.name !== 'get_trace') return route.continue();
+      return route.fulfill({json: {jsonrpc: '2.0', id: body.id, result: {
+        isError: true, content: [{type: 'text', text: 'Chain broken at record #3'}],
+        structuredContent: {verified: false, broken_record: {index: 3, action: 'book cleaner'}},
+      }}});
+    });
+    await page.getByRole('link', {name: 'Verify decision trail →'}).last().click();
+    const alert = page.locator('article[role="alert"]');
+    await expect(alert).toContainText('Tampered — chain broken at record #3: book cleaner');
+    await expect(alert).toBeInViewport();
+    await expect(page.getByText('Verified by server · 3 linked decisions')).toHaveCount(0);
+    await page.screenshot({path: `${evidenceDir}/demo-${viewport.width}-tampered.png`, fullPage: true});
+    await page.unroute('**/mcp');
+    await page.getByRole('link', {name: 'Verify decision trail →'}).last().click();
+    const verified = page.locator('article[role="status"]');
+    await expect(verified).toContainText('Verified — 3 linked decisions, chain intact');
+    await expect(verified).toContainText('This is not proof of authorship.');
+    await expect(verified).toBeInViewport();
+    await expect(alert).toHaveCount(0);
+    await expect(page.locator('.verification')).toHaveCount(1);
     expect(calls.slice(0, 2).map(call => call.method)).toEqual(['initialize', 'notifications/initialized']);
     expect(calls.filter(call => call.tool === 'record_decision')).toHaveLength(3);
     expect(calls.filter(call => call.tool === 'explain_why')).toHaveLength(3);
@@ -47,7 +70,7 @@ for (const viewport of [{width: 1440, height: 1100}, {width: 390, height: 844}])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]); expect(failedRequests).toEqual([]);
     await page.screenshot({path: `${evidenceDir}/demo-${viewport.width}.png`, fullPage: true});
-    fs.writeFileSync(`${evidenceDir}/demo-${viewport.width}-evidence.json`, JSON.stringify({viewport, path: '/demo', turns: turns.length, calls, consoleErrors: errors, failedRequests, assertions: ['three simulated actions persisted', 'three explanations', 'weekly changes', 'retained chain verified', 'no horizontal overflow']}, null, 2));
+    fs.writeFileSync(`${evidenceDir}/demo-${viewport.width}-evidence.json`, JSON.stringify({viewport, path: '/demo', turns: turns.length, calls, consoleErrors: errors, failedRequests, assertions: ['three simulated actions persisted', 'three explanations', 'weekly changes', 'retained chain verified', 'tampered alert visible', 'restored status visible', 'stale result replaced', 'no horizontal overflow']}, null, 2));
   });
 }
 
