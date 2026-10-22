@@ -23,6 +23,11 @@ class Default(WorkerEntrypoint):
     async def fetch(self, request):
         url = urlparse(request.url)
 
+        if url.path in {"/demo", "/demo/", "/demo/app.js", "/demo/style.css"}:
+            if request.method not in {"GET", "HEAD"}:
+                return text_response("Method Not Allowed", status=405, headers={"Allow": "GET, HEAD"})
+            return await self.env.ASSETS.fetch(request)
+
         if url.path == MCP_PATH and request.method == "OPTIONS":
             return self._handle_options(request)
 

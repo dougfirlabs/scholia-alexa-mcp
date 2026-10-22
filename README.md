@@ -112,3 +112,10 @@ Cloudflare deployment and an actual Alexa+ connection have not been validated.
 
 Protocol reference: [MCP Streamable HTTP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 Storage API: [Cloudflare D1 prepared statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/).
+
+## Simulated Alexa+ web demo
+
+Open `/demo` on the local Worker for voice/text input, simulated household
+activities, explanations, weekly changes and server-verified trace cards.
+See [DEMO.md](DEMO.md) for local setup, the seven-turn script and browser evidence.
+The demo uses the same authenticated MCP Streamable HTTP endpoint as other clients.

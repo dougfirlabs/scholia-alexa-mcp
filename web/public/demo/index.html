@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alexa, why? — A home with a memory</title>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/demo/style.css">
+<script type="module" src="/demo/app.js"></script>
+</head>
+<body>
+<header><a href="/demo/" class="brand">alexa<span>, why?</span></a><span class="badge">SIMULATED ALEXA+ EXPERIENCE</span></header>
+<main>
+<section class="intro"><p class="eyebrow">A LITTLE MORE UNDERSTANDING</p><h1>A helpful home.<br>A reason for everything.</h1><p>Ask for a change. Come back to the why.<br>Your demo home keeps the story, not just the action.</p></section>
+<section class="workspace" aria-label="Assistant">
+<aside>
+<h2>Your demo home</h2><p class="muted">Simulated actions. Real saved decision trails.<br>No purchases or reservations are made.</p>
+<form id="connect-form">
+<label for="token">MCP access token</label><input id="token" type="password" autocomplete="off" required placeholder="Enter your local token">
+<label for="household">Demo household</label><input id="household" value="demo" required pattern="[A-Za-z0-9_\-]{1,64}" maxlength="64">
+<button id="connect" type="submit">Connect securely</button>
+</form>
+<p class="muted">Token stays in this page’s memory. Reload to forget it.</p>
+<div class="home-state"><h3>Household activity</h3><ul id="activity"><li>Your next action starts a trail.</li></ul></div>
+<label class="toggle"><input id="speak" type="checkbox" checked> Read answers aloud</label>
+<button id="stop" type="button" class="secondary">Stop speaking</button>
+</aside>
+<div class="conversation">
+<div class="conversation-heading"><h2>Let’s make home easier</h2><span id="connection">Not connected</span></div>
+<p id="status" role="status">Connect to start. You can type or use your microphone.</p>
+<div id="messages" role="log" aria-label="Conversation" aria-live="polite"><article class="welcome"><span class="eyebrow">TRY SOMETHING SMALL</span><h3>“Reorder coffee.”</h3><p>Then ask: “Why did you reorder coffee?”</p></article></div>
+<div class="suggestions" aria-label="Try a prompt"><button type="button" data-prompt="Reorder coffee">Reorder coffee</button><button type="button" data-prompt="Change the evening routine">Evening routine</button><button type="button" data-prompt="Book a cleaner">Book a cleaner</button><button type="button" data-prompt="What changed this week?">This week</button></div>
+<form id="ask-form"><label for="prompt">Ask your demo assistant</label><div class="composer"><input id="prompt" maxlength="256" required placeholder="Ask, or say it out loud…" disabled><button id="mic" type="button" aria-label="Start voice input" disabled>Mic</button><button id="send" disabled>Send</button></div></form>
+</div>
+</section>
+<p class="footnote">An independent demo, not an Amazon product. Deterministic assistant · MCP Streamable HTTP · Scholialang traces</p>
+</main>
+</body></html>

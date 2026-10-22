@@ -5,3 +5,9 @@ __pycache__/
 .venv/
 *.pyc
 .env
+.venv-workers/
+src/vendor/
+wrangler.local.toml
+playwright-report/
+test-results/
+python_modules/

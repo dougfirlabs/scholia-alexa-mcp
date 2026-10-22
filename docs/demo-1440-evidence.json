@@ -1,0 +1,57 @@
+{
+  "viewport": {
+    "width": 1440,
+    "height": 1100
+  },
+  "path": "/demo",
+  "turns": 7,
+  "calls": [
+    {
+      "method": "initialize"
+    },
+    {
+      "method": "notifications/initialized"
+    },
+    {
+      "method": "tools/call",
+      "tool": "record_decision"
+    },
+    {
+      "method": "tools/call",
+      "tool": "explain_why"
+    },
+    {
+      "method": "tools/call",
+      "tool": "record_decision"
+    },
+    {
+      "method": "tools/call",
+      "tool": "explain_why"
+    },
+    {
+      "method": "tools/call",
+      "tool": "record_decision"
+    },
+    {
+      "method": "tools/call",
+      "tool": "explain_why"
+    },
+    {
+      "method": "tools/call",
+      "tool": "whats_changed"
+    },
+    {
+      "method": "tools/call",
+      "tool": "get_trace"
+    }
+  ],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "assertions": [
+    "three simulated actions persisted",
+    "three explanations",
+    "weekly changes",
+    "retained chain verified",
+    "no horizontal overflow"
+  ]
+}
