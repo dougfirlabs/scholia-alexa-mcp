@@ -2,6 +2,9 @@
 import json
 import math
 import re
+import html
+import unicodedata
+from validation import validate as validate_schema
 from datetime import datetime
 
 from store import ChainBroken, append, canonical, read_snapshot
@@ -45,6 +48,7 @@ def tool_definitions():
 
 
 def validate(name, arguments):
+    validate_schema(arguments, next(t["inputSchema"] for t in tool_definitions() if t["name"] == name))
     if not isinstance(arguments, dict):
         raise ValueError("arguments must be an object")
     if len(canonical(arguments).encode()) > 8192:
@@ -68,9 +72,22 @@ def validate(name, arguments):
         raise ValueError("Invalid trace_id")
 
 
+def sanitize(value):
+    if isinstance(value, str):
+        value = html.unescape(value)
+        value = "".join(c for c in value if not unicodedata.category(c).startswith("C"))
+        value = re.sub(r"<[^<>]*>", "", value).replace("<", "").replace(">", "")
+        return re.sub(r"(?:[a-zA-Z][a-zA-Z0-9+.-]*://|www\.)[^\s]+", "[link removed]", value)
+    if isinstance(value, dict):
+        return {sanitize(k): sanitize(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize(v) for v in value]
+    return value
+
+
 def phrase(value, limit):
     # Flatten punctuation so arbitrary stored prose cannot expand the sentence count.
-    return re.sub(r"[.!?。！？\r\n]+", ";", value).strip(" ;")[:limit]
+    return re.sub(r"[.!?。！？\r\n]+", ";", sanitize(value)).strip(" ;")[:limit]
 
 
 async def call_tool(name, arguments, store):
@@ -78,7 +95,7 @@ async def call_tool(name, arguments, store):
     if store is None:
         raise RuntimeError("Decision storage is not configured")
     if name == "record_decision":
-        return await append(store, arguments)
+        return await append(store, {k: (v if k in {"household_id", "session_id"} else sanitize(v)) for k, v in arguments.items()})
     snapshot = await read_snapshot(store, arguments["household_id"])
     records = snapshot["records"]
     if name == "whats_changed":

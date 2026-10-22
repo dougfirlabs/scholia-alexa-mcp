@@ -1,4 +1,5 @@
 import base64
+from hashlib import sha256
 import unittest
 
 from pathlib import Path
@@ -82,18 +83,18 @@ class McpProtocolTests(unittest.TestCase):
     def test_auth_denies_when_not_configured(self):
         ok, reason = authorize_header("Bearer any")
         self.assertFalse(ok)
-        self.assertEqual(reason, "auth_not_configured")
+        self.assertEqual(reason, "unauthorized")
 
     def test_auth_accepts_bearer_token(self):
-        ok, reason = authorize_header("Bearer secret", bearer_token="secret")
+        ok, reason = authorize_header("Bearer secret", token_hashes=sha256(b"secret").hexdigest())
         self.assertTrue(ok)
-        self.assertEqual(reason, "bearer")
+        self.assertEqual(reason, "judge:" + sha256(b"secret").hexdigest())
 
-    def test_auth_accepts_basic_credentials(self):
+    def test_auth_rejects_basic_credentials(self):
         credentials = base64.b64encode(b"scholia:secret").decode("ascii")
-        ok, reason = authorize_header(f"Basic {credentials}", basic_user="scholia", basic_password="secret")
-        self.assertTrue(ok)
-        self.assertEqual(reason, "basic")
+        ok, reason = authorize_header(f"Basic {credentials}", token_hashes=sha256(b"secret").hexdigest())
+        self.assertFalse(ok)
+        self.assertEqual(reason, "unauthorized")
 
     def test_origin_allows_same_origin_and_configured_origin(self):
         self.assertTrue(origin_allowed("https://mcp.example.com", "https://mcp.example.com/mcp"))

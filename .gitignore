@@ -12,5 +12,10 @@ playwright-report/
 test-results/
 python_modules/
 .ralph/
-.opentalon/
+.*/
 .scholia/
+
+.env*
+.venv*
+*.pem
+*.key

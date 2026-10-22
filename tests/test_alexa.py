@@ -1,4 +1,5 @@
 import asyncio
+from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
@@ -9,6 +10,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mcp_protocol import handle_rpc_message_async
+from auth import session_id
 from store import D1Store, MemoryStore, append, read_chain, TTL_SECONDS
 
 FIELDS = dict(household_id="demo", session_id="one", action="dim lights",
@@ -85,7 +87,7 @@ class DecisionTests(unittest.IsolatedAsyncioTestCase):
         for i in range(98):
             await append(store, FIELDS, now=3+i)
         await append(store, FIELDS, now=200)
-        self.assertEqual(len(await read_chain(store, "demo", now=200)), 100)
+        self.assertEqual(len(await read_chain(store, "demo", now=200)), 25)
         fresh = await append(store, FIELDS, now=TTL_SECONDS+1)
         self.assertIsNone(fresh["previous"])
 
@@ -94,8 +96,8 @@ class DecisionTests(unittest.IsolatedAsyncioTestCase):
         rows = [await append(store, {**FIELDS, "session_id": str(i)}) for i in range(150)]
         result = await call(store, "get_trace", {"household_id": "demo", "trace_id": rows[-1]["trace_id"]})
         payload = result["result"]["structuredContent"]
-        self.assertEqual(payload["chain"], rows[50:])
-        self.assertEqual(payload["anchor"], rows[49]["trace_id"])
+        self.assertEqual(payload["chain"], rows[125:])
+        self.assertEqual(payload["anchor"], rows[124]["trace_id"])
         script = str(Path(__file__).resolve().parents[1] / "scripts/verify_chain.py")
         def verify(data):
             return subprocess.run([sys.executable, script], input=json.dumps(data), text=True, capture_output=True)
@@ -155,6 +157,11 @@ class DecisionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await store.compare_swap("demo", "one", "four"))
 
 
+class Limiter:
+    async def limit(self, options):
+        return {"success": True}
+
+
 class Response:
     def __init__(self, body, status=200, headers=None):
         self.body, self.status, self.headers = body, status, headers or {}
@@ -182,7 +189,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
 
         async def request(method, params=None):
             worker = entry.Default()
-            worker.env = types.SimpleNamespace(MCP_AUTH_TOKEN="demo", DECISIONS_DB=binding)
+            worker.env = types.SimpleNamespace(MCP_JUDGE_TOKEN_HASHES=sha256(b"demo").hexdigest(), IP_LIMITER=Limiter(), SUBJECT_LIMITER=Limiter(), DECISIONS_DB=binding)
             return await worker.fetch(Request({"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}))
 
         init = await request("initialize", {"protocolVersion": "2025-11-25"})
@@ -193,7 +200,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         decision_tools = [tool for tool in listed if tool["name"] in {"record_decision", "explain_why", "whats_changed", "get_trace"}]
         self.assertTrue(all(tool["title"] and len(tool["description"]) > 100 for tool in decision_tools))
         self.assertIn("every action taken for the user", next(tool["description"] for tool in decision_tools if tool["name"] == "record_decision"))
-        record = await request("tools/call", {"name": "record_decision", "arguments": FIELDS})
+        record = await request("tools/call", {"name": "record_decision", "arguments": {**FIELDS, "session_id": session_id("judge:" + sha256(b"demo").hexdigest())}})
         trace = json.loads(record.body)["result"]["structuredContent"]["trace_id"]
         for name, args in [("get_trace", {"trace_id": trace}), ("explain_why", {"trace_id": trace}),
                            ("whats_changed", {"since": "2020-01-01T00:00:00Z"})]:
@@ -201,7 +208,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status, 200)
             self.assertFalse(json.loads(response.body)["result"]["isError"])
         worker = entry.Default()
-        worker.env = types.SimpleNamespace(MCP_AUTH_TOKEN="demo", DECISIONS_DB=binding)
+        worker.env = types.SimpleNamespace(MCP_JUDGE_TOKEN_HASHES=sha256(b"demo").hexdigest(), IP_LIMITER=Limiter(), SUBJECT_LIMITER=Limiter(), DECISIONS_DB=binding)
         notification = await worker.fetch(Request({"jsonrpc": "2.0", "method": "notifications/initialized"}))
         self.assertEqual(notification.status, 202)
         bad = Request({})
@@ -218,13 +225,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(sys.modules, {"workers": types.SimpleNamespace(Response=Response, WorkerEntrypoint=object)}):
             import entry
         worker = entry.Default()
-        worker.env = types.SimpleNamespace(MCP_AUTH_TOKEN="demo")
+        worker.env = types.SimpleNamespace(MCP_JUDGE_TOKEN_HASHES=sha256(b"demo").hexdigest(), IP_LIMITER=Limiter(), SUBJECT_LIMITER=Limiter())
         request = Request({})
         request.method = "DELETE"
         response = await worker.fetch(request)
         self.assertEqual(response.status, 405)
         self.assertEqual(response.headers["Allow"], "POST, OPTIONS")
-        request = Request({"payload": "x" * 16384})
+        request = Request({"payload": "x" * 65536})
         request.headers = {**Request.headers, "Origin": "https://example.com"}
         response = await worker.fetch(request)
         self.assertEqual(response.status, 413)

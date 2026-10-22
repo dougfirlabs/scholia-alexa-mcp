@@ -8,3 +8,5 @@
 | Retention | Medium | Deleting individual linked records breaks historical verification | Expire a whole bounded household window and document logical TTL versus physical cleanup |
 | Test setup | Low | System Python had no pytest installed | Use the repository's uv-managed test environment |
 | Alexa+ | Pending | No live Alexa+ client was connected in this implementation run | Validate discovery, credentials and spoken output in a separate operator-controlled smoke test |
+
+| OAuth client credentials | High | Static Bearer tokens are insufficient for Alexa+; it obtains short-lived tokens using client credentials | Added a Basic-authenticated token endpoint, audience-bound HS256 tokens and discovery metadata; live Alexa+ interoperability still needs validation |

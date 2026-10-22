@@ -1,7 +1,10 @@
 const {test, expect} = require('@playwright/test');
 const fs = require('node:fs');
 const baseURL = process.env.DEMO_URL || 'http://127.0.0.1:8787';
-const token = process.env.DEMO_TOKEN || fs.readFileSync('.dev.vars', 'utf8').match(/^MCP_AUTH_TOKEN=(.+)$/m)[1].trim();
+const token = process.env.DEMO_TOKEN;
+if (!token) throw new Error('Set DEMO_TOKEN to a local judge token for browser tests.');
+const evidenceDir = process.env.DEMO_EVIDENCE_DIR || 'docs';
+fs.mkdirSync(evidenceDir, {recursive: true});
 const turns = ['Reorder coffee', 'Why did you reorder coffee?', 'Change the evening routine', 'Why did you change the evening routine?', 'Book a cleaner', 'Why did you book a cleaner?', 'What changed this week?'];
 
 for (const viewport of [{width: 1440, height: 1100}, {width: 390, height: 844}]) {
@@ -43,8 +46,8 @@ for (const viewport of [{width: 1440, height: 1100}, {width: 390, height: 844}])
     expect(calls.some(call => call.tool === 'get_trace')).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]); expect(failedRequests).toEqual([]);
-    await page.screenshot({path: `docs/demo-${viewport.width}.png`, fullPage: true});
-    fs.writeFileSync(`docs/demo-${viewport.width}-evidence.json`, JSON.stringify({viewport, path: '/demo', turns: turns.length, calls, consoleErrors: errors, failedRequests, assertions: ['three simulated actions persisted', 'three explanations', 'weekly changes', 'retained chain verified', 'no horizontal overflow']}, null, 2));
+    await page.screenshot({path: `${evidenceDir}/demo-${viewport.width}.png`, fullPage: true});
+    fs.writeFileSync(`${evidenceDir}/demo-${viewport.width}-evidence.json`, JSON.stringify({viewport, path: '/demo', turns: turns.length, calls, consoleErrors: errors, failedRequests, assertions: ['three simulated actions persisted', 'three explanations', 'weekly changes', 'retained chain verified', 'no horizontal overflow']}, null, 2));
   });
 }
 

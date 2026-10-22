@@ -1,3 +1,8 @@
-# Copy to .dev.vars for local development. Do not commit .dev.vars.
-MCP_AUTH_TOKEN=replace-with-a-long-random-local-token
+# Copy to .dev.vars; configure secrets locally, never commit credentials.
+MCP_JUDGE_TOKEN_HASHES=
+MCP_CLIENT_ID=
+MCP_CLIENT_SECRET=
+MCP_JWT_SECRET=
+MCP_RESOURCE_URL=http://localhost:8787/mcp
 MCP_ALLOWED_ORIGINS=http://localhost:8787
+MCP_DISABLED=0

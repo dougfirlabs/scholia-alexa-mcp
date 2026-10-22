@@ -8,20 +8,14 @@ persisted by the MCP Worker in local D1. Use demo data only.
 ## Start locally
 
 1. Run `npm ci` and `uv sync` (Python 3.12+ and Node required).
-2. Copy `.dev.vars.example` to `.dev.vars`; replace the token with a random local
-   credential. Set `MCP_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787`.
-3. Copy `wrangler.toml` to `wrangler.local.toml` (gitignored). Append:
-
-   ```toml
-   [[d1_databases]]
-   binding = "DECISIONS_DB"
-   database_name = "alexa-decisions"
-   database_id = "00000000-0000-0000-0000-000000000000"
-   migrations_dir = "migrations"
-   ```
-
-4. Run `uv run pywrangler d1 migrations apply alexa-decisions --local -c wrangler.local.toml`.
-5. Run `uv run pywrangler dev -c wrangler.local.toml --ip 127.0.0.1 --port 8787`.
+2. Copy `.dev.vars.example` to `.dev.vars`. Generate a random judge token, store
+   only its SHA-256 hex digest in `MCP_JUDGE_TOKEN_HASHES`, and set a random
+   `MCP_JWT_SECRET` of at least 32 bytes. Keep the token outside the repository.
+   Set `MCP_RESOURCE_URL=http://127.0.0.1:8787/mcp` and
+   `MCP_ALLOWED_ORIGINS=http://127.0.0.1:8787`.
+3. The checked-in configuration already includes the local D1 binding and both rate limiters.
+4. Run `uv run pywrangler d1 migrations apply alexa-decisions --local`.
+5. Run `uv run pywrangler dev --ip 127.0.0.1 --port 8787 --local`.
 6. Open <http://127.0.0.1:8787/demo> in Chrome. Enter the token and a new demo
    household name, such as `video-take-1`, then select **Connect securely**.
    Use a fresh name per take to keep the weekly summary to three decisions.
@@ -69,6 +63,7 @@ With the local Worker still running:
 
 ```sh
 npx playwright install chromium
+# Set DEMO_TOKEN to the local judge credential in your environment.
 npx playwright test web/tests --workers=1 --reporter=line
 uv run --with pytest --with pytest-timeout python -m pytest tests -q --timeout=10
 ```

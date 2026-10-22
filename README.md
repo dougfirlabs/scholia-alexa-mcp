@@ -16,10 +16,12 @@ uv sync
 cp .dev.vars.example .dev.vars
 ```
 
-Set a unique `MCP_AUTH_TOKEN` in `.dev.vars` (never commit it). Basic auth is
-also supported through `MCP_BASIC_USER` and `MCP_BASIC_PASSWORD`. Requests fail
-closed if credentials are absent. Configure `MCP_ALLOWED_ORIGINS` for browser
-clients; requests carrying any other Origin are rejected.
+Configure `.dev.vars` locally or Worker secrets remotely: `MCP_JUDGE_TOKEN_HASHES`
+(comma-separated SHA-256 hashes of random per-judge tokens), `MCP_CLIENT_ID`,
+`MCP_CLIENT_SECRET`, and `MCP_JWT_SECRET` (at least 32 random bytes). Never commit
+credentials. Set `MCP_RESOURCE_URL` to the exact MCP URL and
+`MCP_ALLOWED_ORIGINS` to the exact browser origin. Missing credentials deny access.
+Basic auth is accepted only by the OAuth token endpoint, never by `/mcp`.
 
 The checked-in `wrangler.toml` includes the `DECISIONS_DB` D1 binding with a
 local placeholder ID. Initialize the local database and start the Worker:
@@ -48,7 +50,7 @@ substitutes volatile memory.
 ## MCP requests
 
 POST JSON-RPC to `/mcp` at the local address printed by the dev server. Send
-`Authorization: Bearer <your token>`, `Content-Type: application/json`, and
+`Authorization: Bearer $MCP_AUTH_TOKEN`, `Content-Type: application/json`, and
 `Accept: application/json, text/event-stream`. Initialize with:
 
 ```json
@@ -61,7 +63,7 @@ responses, no session header required, empty 202 notification responses, and
 405 for GET streams and DELETE (no server session to terminate). The decision database persists independently of sessions.
 
 ```json
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"record_decision","arguments":{"household_id":"demo","session_id":"movie-night","action":"dim lights","reason":"Movie time requested by the user","inputs":{"brightness":20},"approver":"Demo user"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"record_decision","arguments":{"household_id":"demo","session_id":"SESSION_FROM_INITIALIZE","action":"dim lights","reason":"Movie time requested by the user","inputs":{"brightness":20},"approver":"Demo user"}}}
 ```
 
 `tools/list` lists the four reference tools and these four decision tools:
@@ -105,19 +107,41 @@ This detects content tampering, but is not a signature or an externally anchored
 ledger: someone able to rewrite the entire database can recompute hashes or
 truncate a chain. Keep an external head hash if that threat matters.
 
-Each household has a fixed 30-day window starting at its first decision. Reads
+Each household has a fixed 72-hour window starting at its first decision. Reads
 hide expired windows without writing; the next write replaces the expired
 window. Expired bytes remain in D1 until replacement or operator cleanup. This
-is logical TTL, not a guarantee of physical deletion. The window retains the newest 100 decisions; further writes evict the oldest
+is logical TTL, not a guarantee of physical deletion. The window retains the newest 25 decisions (50 atoms); further writes evict the oldest
 record and preserve its hash as the chain anchor. This rolling capacity does not
 extend the fixed TTL. Older payloads without an anchor remain readable.
 Inputs are capped at 2048 serialized bytes, tool arguments at 8192 bytes and HTTP
-request bodies at 16384 bytes. Schema string limits further bound responses.
+request bodies at 65536 bytes. Schema string limits further bound responses.
 
-Household IDs are namespaces, not authorization boundaries. A configured token
-can access every household in that deployment. Use a separate deployment and
-credential for each trust boundary; do not expose this demo as a shared tenant
-service. Only demo data should be stored.
+Storage is keyed by SHA-256 of the verified credential subject and a server-issued
+session, with at most eight household partitions per subject. The session id is
+returned by initialize and token responses; use it for record_decision. A caller
+cannot select another credential's data. Rotating a judge token changes its scope.
+Removing its hash revokes both the static token and already-issued judge JWTs.
+Only synthetic demo data should be stored. Legacy unscoped rows are not exposed.
+
+## OAuth and operational controls
+
+`POST /oauth/token` accepts Basic client credentials and a form body
+`grant_type=client_credentials&resource=<MCP URL>`. The response contains a Bearer
+HS256 JWT valid for one hour, bound to the configured MCP URL and client subject.
+The issuer must use HTTPS outside local development. The two discovery endpoints
+are `/.well-known/oauth-protected-resource` (also `/mcp` suffixed) and
+`/.well-known/oauth-authorization-server`. This implements the client-credentials
+flow, not interactive user authorization or dynamic client registration.
+
+The web demo exchanges a user-entered judge token at `POST /oauth/judge`; tokens
+stay in page memory, never in source or browser storage. Reconnect after one hour.
+No LLM service or external action is called. Read tools return untrusted data;
+spoken answers use labelled, sanitized quotes and raw atoms stay in structuredContent.
+
+`MCP_DISABLED=1` returns 503 before authentication. Rate bindings enforce approximately
+60 requests/minute per subject and 120/minute per IP; absent bindings fail closed.
+The CPU limit is 50 ms. Logs contain only method, known tool name, status, latency,
+hashed subject and request id. Configure the shortest available log retention.
 
 ## Tests
 

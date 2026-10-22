@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 let token = '', household = '', version = '', sequence = 0, busy = false, connected = false;
-const session = crypto.randomUUID();
+let session = '';
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 let listening = false;
@@ -108,6 +108,10 @@ $('connect-form').addEventListener('submit', async event => {
   token = $('token').value; household = $('household').value; version = '';
   $('connection').textContent = 'Connecting…';
   try {
+    const exchange = await fetch('/oauth/judge', {method: 'POST', headers: {Authorization: `Bearer ${token}`}});
+    if (!exchange.ok) throw new Error('Token exchange failed. Check your judge credential.');
+    const credential = await exchange.json();
+    token = credential.access_token; session = credential.session_id;
     const result = await rpc('initialize', {protocolVersion: '2025-11-25', capabilities: {}, clientInfo: {name: 'alexa-why-demo', version: '1.0.0'}});
     if (result.protocolVersion !== '2025-11-25') throw new Error('Unsupported negotiated protocol.');
     version = result.protocolVersion;

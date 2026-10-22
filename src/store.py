@@ -3,8 +3,8 @@ import hashlib
 import json
 import time
 
-TTL_SECONDS = 30 * 86400
-MAX_RECORDS = 100
+TTL_SECONDS = 72 * 3600
+MAX_RECORDS = 25  # Two atoms per record, at most 50 atoms per retained trace.
 
 
 def canonical(value):
@@ -109,3 +109,31 @@ async def append(store, fields, now=None):
         if await store.compare_swap(household, old, canonical(chain)):
             return record
     raise ValueError("Concurrent write conflict; retry the request")
+
+
+class SubjectStore:
+    """One bounded document per subject, with at most eight session/household keys."""
+    def __init__(self, store, subject, session):
+        from auth import subject_hash
+        self.store, self.key, self.session = store, subject_hash(subject), session
+
+    async def load(self, household):
+        raw = await self.store.load(self.key)
+        document = json.loads(raw) if raw else {}
+        return document.get(self.session + ":" + household)
+
+    async def compare_swap(self, household, old, new):
+        key = self.session + ":" + household
+        for _ in range(4):
+            raw = await self.store.load(self.key)
+            document = json.loads(raw) if raw else {}
+            if document.get(key) != old:
+                return False
+            document = {k: v for k, v in document.items()
+                        if k == key or json.loads(v)["expires_at"] > time.time()}
+            if key not in document and len(document) >= 8:
+                raise ValueError("Subject storage capacity reached")
+            document[key] = new
+            if await self.store.compare_swap(self.key, raw, canonical(document)):
+                return True
+        return False

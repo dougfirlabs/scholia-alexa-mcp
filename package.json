@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "uv run pywrangler dev",
     "deploy": "uv run pywrangler deploy",
-    "secret:token": "uv run pywrangler secret put MCP_AUTH_TOKEN",
+    "secret:token": "uv run pywrangler secret put MCP_JUDGE_TOKEN_HASHES",
     "test": "python3 -m unittest discover -s tests",
     "typegen": "uv run pywrangler types"
   },
