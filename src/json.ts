@@ -3,6 +3,8 @@ export const bytes = (text: string) => new TextEncoder().encode(text);
 export const parseJSON = (text: string): any => parse(text);
 export const object = (v: any): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v) && !isLosslessNumber(v);
 export const numeric = (v: any) => typeof v === 'number' || isLosslessNumber(v);
+// Convert the token, bypassing LosslessNumber's throwing overflow coercion.
+export const finiteNumeric = (v: any) => numeric(v) && Number.isFinite(Number(isLosslessNumber(v) ? v.value : v));
 // Python JSON uses code-point key order, ASCII escaping, and distinguishes floats
 // from integers. Preserve numeric tokens when loading existing signed records.
 const quote = (v: string) => JSON.stringify(v).replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));

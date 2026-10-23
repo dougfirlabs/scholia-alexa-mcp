@@ -99,7 +99,7 @@ test('voice transcript is reviewed before recording and keyboard submits', async
     window.spoken = [];
     window.speechSynthesis.getVoices = () => [{name: 'Google US English', lang: 'en-US', default: false}];
     window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
-    window.speechSynthesis.speak = utterance => window.spoken.push(utterance.text);
+    window.speechSynthesis.speak = utterance => { if (utterance.volume !== 0) window.spoken.push(utterance.text); };
   });
   await page.route('**/tts', route => route.fulfill({status: 503, json: {error: 'voice unavailable'}}));
   await page.goto(`${baseURL}/demo/`);

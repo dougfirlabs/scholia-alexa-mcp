@@ -177,3 +177,174 @@ it('matches Unicode casefold selectors and hides private exception details', asy
   const error = await rpc(message('get_trace', {household_id: 'demo', trace_id: 'sha256:' + '0'.repeat(64)}), broken, 'test-request');
   expect(error.error).toEqual({code: -32603, message: 'Internal error', data: {requestId: 'test-request'}});
 });
+
+// Transport and storage regressions mirror the legacy Python security suite.
+it.each([null, true, [], {}, NaN, Infinity, -Infinity, parseJSON('1e400')])('rejects invalid RPC id %s without throwing', async id => {
+  expect((await rpc({jsonrpc: '2.0', id, method: 'ping'})).error.code).toBe(-32600);
+});
+it('rejects overflow ids over HTTP', async () => {
+  const res = await send('{"jsonrpc":"2.0","id":1e400,"method":"ping"}');
+  expect(res.status).toBe(200);
+  expect((await res.json() as any).error.code).toBe(-32600);
+});
+it.each([NaN, Infinity, -Infinity, parseJSON('1e400')])('rejects non-finite arguments %s without writes', async n => {
+  const store = new MemoryStore();
+  const result = await rpc(message('record_decision', {...fields(), inputs: {n}}), store);
+  expect(result.result).toMatchObject({isError: true, content: [{text: 'Invalid input'}]});
+  expect(store.rows.size).toBe(0);
+});
+it('rejects overflow arguments over HTTP', async () => {
+  const args = {...fields(), session_id: await sessionId('judge:' + await sha256('demo')), inputs: {n: 'OVERFLOW'}};
+  const res = await send(JSON.stringify(message('record_decision', args)).replace('"OVERFLOW"', '1e400'));
+  expect(res.status).toBe(200);
+  expect((await res.json() as any).result).toMatchObject({isError: true, content: [{text: 'Invalid input'}]});
+});
+it('lints adversarial incomplete tags in bounded time', async () => {
+  const {lint} = await import('../src/tools');
+  lint('<Step'); // Warm the runtime before timing.
+  const start = performance.now();
+  lint('<Step '.repeat(34000));
+  expect(performance.now() - start).toBeLessThan(50);
+});
+it('sanitizes long scheme-like text in bounded time', () => {
+  sanitize('warmup');
+  const start = performance.now(), value = 'a1'.repeat(32000);
+  expect(sanitize(value)).toBe(value);
+  expect(performance.now() - start).toBeLessThan(50);
+  expect(sanitize('123https://evil.example www.evil.example custom+scheme://evil.example')).toBe('123[link removed] [link removed] [link removed]');
+  expect(sanitize('123://www.evil.example')).toBe('123://[link removed]');
+});
+it('rejects excessive Content-Length without acquiring a body reader', async () => {
+  const req = request('/mcp', '{}', {'Content-Length': '65537'});
+  const reader = vi.spyOn(req.body!, 'getReader').mockImplementation(() => { throw new Error('body must not be read'); });
+  expect((await worker.fetch(req, env)).status).toBe(413);
+  expect(reader).not.toHaveBeenCalled();
+});
+it.each(['', 'Basic ' + btoa('client:secret'), 'Bearer invalid'])('returns uniform unauthorized metadata for %s', async Authorization => {
+  const res = await send({}, {Authorization});
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({error: 'unauthorized'});
+  expect(res.headers.get('WWW-Authenticate')).toBe('Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"');
+});
+it('denies at the subject limiter before reading the body', async () => {
+  env.SUBJECT_LIMITER.limit = vi.fn(async () => ({success: false}));
+  const req = request('/mcp', '{}');
+  const reader = vi.spyOn(req.body!, 'getReader');
+  expect((await worker.fetch(req, env)).status).toBe(429);
+  expect(reader).not.toHaveBeenCalled();
+  expect(env.SUBJECT_LIMITER.limit).toHaveBeenCalledWith({key: await sha256('judge:' + await sha256('demo'))});
+});
+it('exchanges urlencoded resources and returns matching OAuth/initialize sessions', async () => {
+  const res = await worker.fetch(request('/oauth/token', 'grant_type=client_credentials&resource=https%3A%2F%2Fexample.com%2Fmcp', {Authorization: 'Basic ' + btoa('client:secret')}), env);
+  expect(res.status).toBe(200);
+  const issued: any = await res.json();
+  expect(issued.session_id).toBe(await sessionId('client'));
+  const init: any = await (await send({jsonrpc: '2.0', id: 1, method: 'initialize'}, {Authorization: 'Bearer ' + issued.access_token})).json();
+  expect(init.result.session_id).toBe(issued.session_id);
+  const judge: any = await (await worker.fetch(request('/oauth/judge', ''), env)).json();
+  expect(judge.session_id).toBe(await sessionId('judge:' + await sha256('demo')));
+});
+it.each([
+  ['client%:sec%ret', 'client%', 'sec%ret'],
+  ['client%2:sec%ZZret', 'client%2', 'sec%ZZret'],
+  ['client+name:sec%2Bret%26%23', 'client name', 'sec+ret&#'],
+  ['client:sec%FFret', 'client', 'sec\ufffdret'],
+])('matches tolerant Python unquote_plus for %s', async (raw, client, secret) => {
+  env.MCP_CLIENT_ID = client; env.MCP_CLIENT_SECRET = secret;
+  const res = await worker.fetch(request('/oauth/token', 'grant_type=client_credentials', {Authorization: 'Basic ' + btoa(raw)}), env);
+  expect(res.status).toBe(200);
+});
+it('sanitizes HTTP decision content without logging utterances or secrets', async () => {
+  const reason = '<speak>Secret utterance\x00 <audio src="https://evil.example"/>www.evil.example</speak>';
+  const args = {...fields(), session_id: await sessionId('judge:' + await sha256('demo')), reason};
+  const res: any = await (await send(message('record_decision', args))).json();
+  expect(res.result.isError).toBe(false);
+  expect(res.result.structuredContent.reason).toContain('Secret utterance');
+  expect(res.result.structuredContent.reason).not.toMatch(/<|\x00|evil\.example/);
+  expect(res.result.content[0].text).not.toContain('atoms');
+  const logs = JSON.stringify(vi.mocked(console.info).mock.calls);
+  expect(logs).not.toMatch(/Secret utterance|Bearer|evil\.example/);
+  expect(logs).not.toContain(env.MCP_JWT_SECRET);
+});
+it('correlates generic RPC failures to audit requestId', async () => {
+  env.DECISIONS_DB.prepare = () => { throw new Error('private upstream data'); };
+  const res: any = await (await send(message('get_trace', {household_id: 'demo', trace_id: 'sha256:' + '0'.repeat(64)}))).json();
+  const audit = JSON.parse(vi.mocked(console.info).mock.calls.at(-1)![0] as string);
+  expect(res.error).toEqual({code: -32603, message: 'Internal error', data: {requestId: audit.requestId}});
+  expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain('private upstream data');
+});
+it('reports broken_record through RPC and refuses appending to a tampered chain', async () => {
+  const store = new MemoryStore(), row = await append(store, fields());
+  const chain = parseJSON((await store.load('demo'))!);
+  chain.records[0].reason = 'tampered';
+  store.rows.set('demo', canonical(chain));
+  const before = await store.load('demo');
+  for (const [name, args] of [['get_trace', {household_id: 'demo', trace_id: row.trace_id}], ['record_decision', fields()]] as const) {
+    const res = await rpc(message(name, args), store);
+    expect(res.result).toMatchObject({isError: true, structuredContent: {verified: false, broken_record: {index: 1, action: row.action}}});
+  }
+  expect(await store.load('demo')).toBe(before);
+});
+it('accepts legacy missing anchors and rejects tampered anchors', async () => {
+  const store = new MemoryStore();
+  await append(store, fields());
+  const chain = parseJSON((await store.load('demo'))!); delete chain.anchor;
+  store.rows.set('demo', canonical(chain));
+  await append(store, fields());
+  const updated = parseJSON((await store.load('demo'))!); updated.anchor = 'sha256:' + '0'.repeat(64);
+  store.rows.set('demo', canonical(updated));
+  await expect(readSnapshot(store, 'demo')).rejects.toThrow('Chain broken at record #1');
+});
+it('expires chains without writing and starts fresh on the next append', async () => {
+  const store = new MemoryStore();
+  await append(store, fields(), 1);
+  const before = await store.load('demo');
+  expect((await readSnapshot(store, 'demo', TTL_SECONDS + 1)).records).toEqual([]);
+  expect(await store.load('demo')).toBe(before);
+  expect((await append(store, fields(), TTL_SECONDS + 1)).previous).toBeNull();
+});
+it.each([
+  {reason: 'x'.repeat(1001)}, {inputs: {x: 'y'.repeat(2049)}}, {household_id: '../demo'}, {extra: true}, {approver: null},
+])('does not write invalid decisions %s', async invalid => {
+  const store = new MemoryStore();
+  expect((await rpc(message('record_decision', {...fields(), ...invalid}), store)).result.isError).toBe(true);
+  expect(store.rows.size).toBe(0);
+});
+it('retains and independently verifies the last 25 of 150 records, detects tampering', async () => {
+  const store = new D1Store(database()), rows = [];
+  for (let i = 0; i < 150; i++) rows.push(await append(store, {...fields(), session_id: String(i)}));
+  const result = await rpc(message('get_trace', {household_id: 'demo', trace_id: rows.at(-1)!.trace_id}), store);
+  const payload = result.result.structuredContent;
+  expect(payload.chain).toEqual(rows.slice(125)); expect(payload.anchor).toBe(rows[124].trace_id);
+  const python = process.env.PYTHON || 'python3';
+  expect(execFileSync(python, ['scripts/verify_chain.py'], {input: canonical(payload), encoding: 'utf8'}).trim()).toBe('OK');
+  payload.chain[0].reason = 'tampered';
+  try {
+    execFileSync(python, ['scripts/verify_chain.py'], {input: canonical(payload), encoding: 'utf8'});
+    expect.fail('tampered export must fail');
+  } catch (e: any) { expect(e.status).toBe(1); expect(e.stdout.trim()).toBe('FAIL at record #1'); }
+});
+it('returns DELETE 405 with Allow', async () => {
+  const res = await worker.fetch(request('/mcp', undefined, {}, 'DELETE'), env);
+  expect(res.status).toBe(405); expect(res.headers.get('Allow')).toBe('POST, OPTIONS');
+});
+it('preserves CORS on oversized bodies', async () => {
+  const res = await send('x'.repeat(65537), {Origin: 'https://example.com'});
+  expect(res.status).toBe(413); expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+  expect(res.headers.get('Vary')).toBe('Origin');
+});
+it.each([
+  [[], -32600], [{jsonrpc: '2.0', id: {}, method: 'tools/call'}, -32600],
+  [{jsonrpc: '2.0', id: 1, method: []}, -32600], [{jsonrpc: '2.0', id: 1, method: 'initialize', params: null}, -32602],
+])('returns RPC errors for malformed HTTP envelopes %s', async (body, code) => {
+  const res = await send(body); expect(res.status).toBe(200);
+  expect((await res.json() as any).error.code).toBe(code);
+});
+
+it('matches a committed non-exact float fixture in both languages', async () => {
+  const raw = fixture('non-exact-float-chain').trim(), payload = parseJSON(raw);
+  await checkChain(payload.chain, 'demo');
+  const row = await append(new MemoryStore(), fields(), float(1792972215.5180001));
+  expect(canonical({trace: row, chain: [row], anchor: null})).toBe(raw);
+  expect(execFileSync(process.env.PYTHON || 'python3', ['scripts/verify_chain.py'], {input: raw, encoding: 'utf8'}).trim()).toBe('OK');
+});

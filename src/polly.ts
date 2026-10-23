@@ -2,7 +2,7 @@ import {hmac} from './auth';
 import {sha256, hex, object} from './json';
 import {sanitize} from './tools';
 export function speechText(message: any): string {
-  if (!object(message) || Object.keys(message).join() !== 'text' || typeof message.text !== 'string') throw new RangeError('Expected text');
+  if (!object(message) || Object.keys(message).join() !== 'text' || typeof message.text !== 'string' || message.text.length > 2400 || Array.from(message.text).length > 1200) throw new RangeError('Expected text');
   const text = sanitize(message.text).trim();
   if (!text || Array.from(text).length > 300) throw new RangeError('Expected text');
   return text;
@@ -31,8 +31,12 @@ export async function synthesize(text: string, env: Record<string, any>, fetcher
       const headers = await signedHeaders(body, env.AWS_ACCESS_KEY_ID, env.AWS_SECRET_ACCESS_KEY, region, timestamp, env.AWS_SESSION_TOKEN);
       const response = await fetcher(`https://polly.${region}.amazonaws.com/v1/speech`, {method: 'POST', headers, body, redirect: 'error'});
       if (response.status === 200) return response.arrayBuffer();
-      const error: any = await response.json(), code = (error.__type ?? error.code ?? '').split('#').at(-1).split(':')[0];
-      if (i === 0 && engine === 'generative' && code === 'EngineNotSupportedException') { engine = 'neural'; continue; }
+      const error: any = await response.json().catch(() => ({}));
+      const codes = [response.headers.get('x-amzn-ErrorType'), error?.__type, error?.code]
+        .filter((value): value is string => typeof value === 'string').map(value => value.split('#').at(-1)!.split(':')[0]);
+      const unsupported = codes.includes('EngineNotSupportedException') ||
+        (response.status === 400 && /\bengine\b/i.test(String(error?.message ?? error?.Message ?? '')));
+      if (i === 0 && engine === 'generative' && unsupported) { engine = 'neural'; continue; }
       break;
     }
   } catch { /* Never disclose upstream credentials or error details. */ }

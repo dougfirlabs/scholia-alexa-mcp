@@ -1,10 +1,10 @@
 import data from './reference.json';
-import {object, numeric} from './json';
+import {object, finiteNumeric} from './json';
 import {callTool, definitions} from './tools';
 import type {Store} from './store';
 export const versions = ['2025-11-25', '2025-06-18', '2025-03-26'];
 export const rpcError = (id: any, code: number, message: string, data?: any) => ({jsonrpc: '2.0', id, error: {code, message, ...(data === undefined ? {} : {data})}});
-export function validId(m: any) { return !Object.hasOwn(m, 'id') || typeof m.id === 'string' || (numeric(m.id) && Number.isFinite(Number(m.id))); }
+export function validId(m: any) { return !Object.hasOwn(m, 'id') || typeof m.id === 'string' || finiteNumeric(m.id); }
 export async function rpc(m: any, store?: Store, requestId = crypto.randomUUID()): Promise<any> {
   if (!object(m)) return rpcError(null, -32600, 'JSON-RPC body must be an object');
   if (!validId(m)) return rpcError(null, -32600, 'Invalid id');

@@ -12,19 +12,26 @@ async function demo(page) {
     return route.fulfill({status: 503, json: {error: 'voice unavailable'}});
   });
   await page.addInitScript(() => {
-    window.spoken = []; window.played = []; window.paused = 0; window.revoked = [];
+    window.primed = []; window.audioCount = 0; window.spoken = []; window.played = []; window.paused = 0; window.revoked = [];
     window.speechSynthesis.getVoices = () => [
       {name: 'Robot', lang: 'en-US', default: true},
       {name: 'English', lang: 'en-GB', default: false},
       {name: 'Google US English', lang: 'en-US', default: false},
     ];
-    window.speechSynthesis.speak = u => window.spoken.push({text: u.text, voice: u.voice.name});
+    window.speechSynthesis.speak = u => {
+      if (u.volume === 0) window.primed.push(navigator.userActivation.isActive);
+      else window.spoken.push({text: u.text, voice: u.voice.name});
+    };
     window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
     URL.createObjectURL = () => 'blob:demo-audio';
     URL.revokeObjectURL = url => window.revoked.push(url);
     window.Audio = class {
-      constructor(url) { this.src = url; window.audioInstance = this; }
-      async play() { window.played.push(this.src); if (window.rejectPlayback) throw new Error('autoplay'); }
+      constructor(url) { this.src = url; window.audioInstance = this; window.audioCount++; }
+      async play() {
+        if (this.src.startsWith('data:')) { this.unlocked = navigator.userActivation.isActive; return; }
+        window.played.push(this.src);
+        if (window.rejectPlayback || (window.requireUnlock && !this.unlocked)) throw new Error('autoplay');
+      }
       pause() { window.paused++; }
     };
   });
@@ -78,4 +85,44 @@ test('stop suppresses delayed fallback and voices load asynchronously', async ({
     const pending = say('Cancelled'); stopSpeaking(); await pending;
   });
   expect(await page.evaluate(() => window.spoken.map(u => u.text))).toEqual(['Late voices']);
+});
+
+test('Connect and Send unlock a single reused audio element before network responses', async ({page}) => {
+  await demo(page);
+  await page.evaluate(() => { window.requireUnlock = true; });
+  await page.route('**/oauth/judge', route => route.fulfill({json: {access_token: 'test', session_id: 'session'}}));
+  await page.route('**/mcp', async route => {
+    const m = route.request().postDataJSON();
+    if (!m.id) return route.fulfill({status: 202});
+    const result = m.method === 'initialize' ? {protocolVersion: '2025-11-25'} :
+      {isError: false, structuredContent: {answer: 'Recorded reason.', trace_id: 'sha256:1234', trail: {approver: 'Demo user'}}};
+    await route.fulfill({json: {jsonrpc: '2.0', id: m.id, result}});
+  });
+  await page.route('**/tts', route => route.fulfill({contentType: 'audio/mpeg', body: 'mock-mp3'}));
+  await page.locator('#token').fill('test');
+  await page.locator('#connect').click();
+  await expect(page.locator('#connection')).toHaveText('Connected · MCP');
+  expect(await page.evaluate(() => window.primed)).toEqual([true]);
+  for (let i = 0; i < 2; i++) {
+    await page.locator('#prompt').fill('Why did you dim the lights?');
+    await page.locator('#send').click();
+    await expect.poll(() => page.evaluate(() => window.played.length)).toBe(i + 1);
+    await page.locator('#stop').click();
+  }
+  expect(await page.evaluate(() => window.audioCount)).toBe(1);
+  expect(await page.evaluate(() => window.primed)).toEqual([true, true, true]);
+  expect(await page.evaluate(() => window.spoken)).toEqual([]);
+  expect(await page.evaluate(() => window.revoked.length)).toBe(2);
+});
+
+test('sends full raw speech text so the server counts after sanitizing', async ({page}) => {
+  await demo(page);
+  const text = '<b>' + 'x'.repeat(300) + '</b>';
+  let received;
+  await page.route('**/tts', route => {
+    received = route.request().postDataJSON().text;
+    return route.fulfill({contentType: 'audio/mpeg', body: 'mock-mp3'});
+  });
+  await page.evaluate(text => say(text), text);
+  expect(received).toBe(text);
 });

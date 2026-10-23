@@ -1,12 +1,12 @@
 import {decodeHTML} from 'entities';
 import data from './reference.json';
 import casefold from './casefold.json';
-import {object, numeric, canonical, bytes} from './json';
+import {object, numeric, finiteNumeric, canonical, bytes} from './json';
 import {append, readSnapshot, ChainBroken, type Store} from './store';
 export const definitions: any[] = data.TOOLS;
 export const decisionNames = ['record_decision', 'explain_why', 'whats_changed', 'get_trace'];
 export function bounded(v: any, depth = 0) {
-  if (depth > 20 || (typeof v === 'string' && bytes(v).length > 8192) || (numeric(v) && !Number.isFinite(Number(v)))) throw new RangeError('Input limit exceeded');
+  if (depth > 20 || (typeof v === 'string' && bytes(v).length > 8192) || (numeric(v) && !finiteNumeric(v))) throw new RangeError('Input limit exceeded');
   if (Array.isArray(v)) v.forEach(x => bounded(x, depth + 1));
   else if (object(v)) for (const [k, x] of Object.entries(v)) { bounded(k, depth + 1); bounded(x, depth + 1); }
 }
@@ -28,7 +28,8 @@ export function validate(v: any, schema: any) {
   if (schema.enum && !schema.enum.includes(v)) throw new RangeError('Invalid choice');
 }
 export function sanitize(v: any): any {
-  if (typeof v === 'string') return decodeHTML(v).replace(/\p{C}/gu, '').replace(/<[^<>]*>/g, '').replace(/[<>]/g, '').replace(/(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|www\.)[^\s]+/g, '[link removed]');
+  // Try each scheme run only once; preserve any leading non-letter prefix.
+  if (typeof v === 'string') return decodeHTML(v).replace(/\p{C}/gu, '').replace(/<[^<>]*>/g, '').replace(/[<>]/g, '').replace(/(?<![a-zA-Z0-9+.-])([0-9+.-]*)[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s]+|www\.[^\s]+/g, (_link, prefix) => (prefix ?? '') + '[link removed]');
   if (Array.isArray(v)) return v.map(sanitize);
   if (object(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [sanitize(k), sanitize(x)]));
   return v;

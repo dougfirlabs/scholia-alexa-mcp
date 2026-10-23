@@ -108,10 +108,11 @@ async function route(request: Request, env: Env, audit: Record<string, any>) {
   const insufficient = () => json({error: 'insufficient_scope'}, 403, {...headers, 'WWW-Authenticate': 'Bearer error="insufficient_scope"'});
   if (path === '/tts') {
     if (!allowed('mcp:tools')) return insufficient();
-    let text: string;
-    try { text = speechText(parseJSON(await body(request))); }
+    let message: any;
+    try { message = parseJSON(await body(request)); speechText(message); }
     catch (e) { if (e instanceof TooLarge) throw e; return json({error: 'Expected 1 to 300 sanitized text characters'}, 400, headers); }
-    try { return response(await synthesize(text, env), 200, {...headers, 'Content-Type': 'audio/mpeg'}); }
+    // Pass the original text so entity decoding is not applied to its own output.
+    try { return response(await synthesize(message.text, env), 200, {...headers, 'Content-Type': 'audio/mpeg'}); }
     catch { return json({error: 'voice unavailable'}, 503, headers); }
   }
   const version = request.headers.get('MCP-Protocol-Version');

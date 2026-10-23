@@ -27,7 +27,7 @@ export async function clientSubject(header: string, client = '', secret = '') {
     if (scheme.toLowerCase() !== 'basic') return null;
     const decoded = new TextDecoder('utf-8', {fatal: true}).decode(Uint8Array.from(atob(value), c => c.charCodeAt(0)));
     const colon = decoded.indexOf(':'); if (colon < 0) return null;
-    const unquote = (s: string) => decodeURIComponent(s.replace(/\+/g, ' '));
+    const unquote = (s: string) => new URLSearchParams('value=' + s.replace(/&/g, '%26').replace(/#/g, '%23')).get('value')!;
     return await equal(unquote(decoded.slice(0, colon)), client) && await equal(unquote(decoded.slice(colon + 1)), secret) ? client : null;
   } catch { return null; }
 }
