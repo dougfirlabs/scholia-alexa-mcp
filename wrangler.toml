@@ -1,11 +1,10 @@
 "$schema" = "./node_modules/wrangler/config-schema.json"
 name = "scholia-alexa-mcp"
-main = "src/entry.py"
+main = "src/index.ts"
 compatibility_date = "2026-05-29"
-compatibility_flags = ["python_workers"]
 
-# No public ingress by default. Deploying this Worker will not create a
-# workers.dev URL, preview URLs are disabled, and no route/custom domain is set.
+# Deployment is an operator step. workers.dev is enabled; preview URLs are
+# disabled, and no route/custom domain is set.
 workers_dev = true
 preview_urls = false
 keep_vars = true

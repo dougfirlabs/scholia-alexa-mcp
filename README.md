@@ -8,11 +8,10 @@ Based on the Scholialang MCP worker (open source); everything Alexa-specific is 
 
 ## Local setup
 
-Requires Python 3.12+, uv, Node.js and npm. All examples use demo data.
+The Worker runs on TypeScript and Web APIs. Requires Node.js 22.13+ and npm; Python 3.12+ and uv are needed only for reference compatibility tests. All examples use demo data.
 
 ```sh
 npm ci
-uv sync
 cp .dev.vars.example .dev.vars
 ```
 
@@ -27,23 +26,22 @@ The checked-in `wrangler.toml` includes the `DECISIONS_DB` D1 binding with a
 local placeholder ID. Initialize the local database and start the Worker:
 
 ```sh
-uv run pywrangler d1 migrations apply alexa-decisions --local
+npx wrangler d1 migrations apply alexa-decisions --local
 npm run dev
 ```
 
-Pywrangler proxies D1 commands to Wrangler. For a separately authorized remote
+For a separately authorized remote
 setup, create the database, replace `database_id` in `wrangler.toml` with the
 returned UUID, then apply migrations:
 
 ```sh
-uv run pywrangler d1 create alexa-decisions
+npx wrangler d1 create alexa-decisions
 # Replace the placeholder database_id with the returned UUID before continuing.
-uv run pywrangler d1 migrations apply alexa-decisions --remote
+npx wrangler d1 migrations apply alexa-decisions --remote
 ```
 
 The placeholder ID is for local development only. Secret configuration and
-deployment are separate operator steps. No public route is enabled by the
-checked-in configuration. Without a `DECISIONS_DB` binding the reference tools
+deployment are separate operator steps. Deployment is an operator step: the checked-in configuration enables workers.dev. Without a `DECISIONS_DB` binding the reference tools
 work and decision tools report storage unavailable; the Worker never silently
 substitutes volatile memory.
 
@@ -128,6 +126,9 @@ Only synthetic demo data should be stored. Legacy unscoped rows are not exposed.
 `POST /oauth/token` accepts Basic client credentials and a form body
 `grant_type=client_credentials&resource=<MCP URL>`. The response contains a Bearer
 HS256 JWT valid for one hour, bound to the configured MCP URL and client subject.
+The optional `scope` form field accepts `mcp:service` (default, all tools/resources),
+`mcp:tools`, and `mcp:resources`; narrower scopes are enforced on MCP methods.
+Discovery advertises S256; no interactive authorization-code endpoint is provided.
 The issuer must use HTTPS outside local development. The two discovery endpoints
 are `/.well-known/oauth-protected-resource` (also `/mcp` suffixed) and
 `/.well-known/oauth-authorization-server`. This implements the client-credentials
@@ -146,6 +147,8 @@ hashed subject and request id. Configure the shortest available log retention.
 ## Tests
 
 ```sh
+npm test
+npm run typecheck
 uv run --with pytest --with pytest-timeout python -m pytest tests -q --timeout=10
 ```
 
@@ -171,7 +174,7 @@ setting. The browser sends `POST /tts` with its existing Bearer credential and
 `{"text":"Recorded answer"}`. The Worker applies the MCP origin checks, authentication,
 and IP/subject rate limits, sanitizes text with the decision-text sanitizer, and
 rejects empty text or more than 300 sanitized characters with 400 (oversized HTTP
-bodies return 413). It signs a plain-text `SynthesizeSpeech` request using stdlib
+bodies return 413). It signs a plain-text `SynthesizeSpeech` request using WebCrypto
 HMAC/SHA-256 AWS SigV4 and returns MP3 as `audio/mpeg` with `Cache-Control: no-store`.
 Text is sent to AWS only when speech is requested; credentials stay on the Worker.
 

@@ -4,14 +4,26 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
-    "dev": "uv run pywrangler dev",
-    "deploy": "uv run pywrangler deploy",
-    "secret:token": "uv run pywrangler secret put MCP_JUDGE_TOKEN_HASHES",
-    "test": "python3 -m unittest discover -s tests",
-    "typegen": "uv run pywrangler types"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secret:token": "wrangler secret put MCP_JUDGE_TOKEN_HASHES",
+    "test": "vitest run",
+    "typecheck": "tsc",
+    "typegen": "wrangler types"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
     "@playwright/test": "^1.64.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
     "wrangler": "^4.95.0"
+  },
+  "dependencies": {
+    "entities": "^8.1.0",
+    "lossless-json": "^4.3.3"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
   }
 }

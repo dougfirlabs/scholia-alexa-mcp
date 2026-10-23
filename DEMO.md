@@ -7,15 +7,15 @@ persisted by the MCP Worker in local D1. Use demo data only.
 
 ## Start locally
 
-1. Run `npm ci` and `uv sync` (Python 3.12+ and Node required).
+1. Run `npm ci` (Node.js 22.13+ required; Python is only needed for reference tests).
 2. Copy `.dev.vars.example` to `.dev.vars`. Generate a random judge token, store
    only its SHA-256 hex digest in `MCP_JUDGE_TOKEN_HASHES`, and set a random
    `MCP_JWT_SECRET` of at least 32 bytes. Keep the token outside the repository.
    Set `MCP_RESOURCE_URL=http://127.0.0.1:8787/mcp` and
    `MCP_ALLOWED_ORIGINS=http://127.0.0.1:8787`.
 3. The checked-in configuration already includes the local D1 binding and both rate limiters.
-4. Run `uv run pywrangler d1 migrations apply alexa-decisions --local`.
-5. Run `uv run pywrangler dev --ip 127.0.0.1 --port 8787 --local`.
+4. Run `npx wrangler d1 migrations apply alexa-decisions --local`.
+5. Run `npx wrangler dev --ip 127.0.0.1 --port 8787 --local`.
 6. Open <http://127.0.0.1:8787/demo> in Chrome. Enter the token and a new demo
    household name, such as `video-take-1`, then select **Connect securely**.
    Use a fresh name per take to keep the weekly summary to three decisions.

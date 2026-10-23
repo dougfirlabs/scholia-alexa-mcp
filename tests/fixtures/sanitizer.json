@@ -1,0 +1,18 @@
+[
+  {
+    "input": "&lt;speak&gt;Hi&#0; https://evil.example&lt;/speak&gt;",
+    "expected": "Hi\ufffd [link removed]"
+  },
+  {
+    "input": "Hello\u200b\u0000\nworld www.evil.example",
+    "expected": "Helloworld [link removed]"
+  },
+  {
+    "input": "&copy; &#x1f600; &NotEqualTilde;",
+    "expected": "\u00a9 \ud83d\ude00 \u2242\u0338"
+  },
+  {
+    "input": "<b>hi</b> <audio src=\"https://evil.example\"/>",
+    "expected": "hi "
+  }
+]
