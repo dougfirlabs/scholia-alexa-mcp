@@ -6,6 +6,7 @@ import uuid
 from urllib.parse import parse_qs, urlparse
 
 import auth
+import polly
 from validation import valid_id
 
 from workers import Response, WorkerEntrypoint
@@ -67,10 +68,10 @@ class Default(WorkerEntrypoint):
                 return text_response("Method Not Allowed", status=405, headers={"Allow": "GET, HEAD"})
             return await self.env.ASSETS.fetch(request)
 
-        if url.path == MCP_PATH and request.method == "OPTIONS":
+        if url.path in {MCP_PATH, "/tts"} and request.method == "OPTIONS":
             return self._handle_options(request)
 
-        if url.path not in {MCP_PATH, HEALTH_PATH}:
+        if url.path not in {MCP_PATH, HEALTH_PATH, "/tts"}:
             return text_response("Not Found", status=404)
 
         origin_check = self._origin_allowed(request)
@@ -101,6 +102,9 @@ class Default(WorkerEntrypoint):
 
         if request.method != "POST":
             return text_response("Method Not Allowed", status=405, headers={"Allow": "POST, OPTIONS"})
+
+        if url.path == "/tts":
+            return await self._tts(request)
 
         protocol_version = header_value(request, "MCP-Protocol-Version")
         if protocol_version and protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
@@ -142,6 +146,24 @@ class Default(WorkerEntrypoint):
         if response_message is None:
             return text_response("", status=202, headers=self._cors_headers(request))
         return json_response(response_message, headers=self._cors_headers(request))
+
+    async def _tts(self, request):
+        headers = self._cors_headers(request)
+        try:
+            length = header_value(request, "Content-Length")
+            if length and (not length.isdecimal() or int(length) > 65536):
+                return json_response({"error": "payload_too_large"}, status=413, headers=headers)
+            raw = await request.text()
+            if len(raw.encode()) > 65536:
+                return json_response({"error": "payload_too_large"}, status=413, headers=headers)
+            text = polly.speech_text(json.loads(raw))
+        except (ValueError, TypeError):
+            return json_response({"error": "Expected 1 to 300 sanitized text characters"}, status=400, headers=headers)
+        try:
+            audio = await polly.synthesize(text, lambda name: env_value(self.env, name))
+        except polly.VoiceUnavailable:
+            return json_response({"error": "voice unavailable"}, status=503, headers=headers)
+        return text_response(audio, headers={**headers, "Content-Type": "audio/mpeg"})
 
     def _handle_options(self, request):
         if not self._origin_allowed(request):

@@ -135,7 +135,7 @@ flow, not interactive user authorization or dynamic client registration.
 
 The web demo exchanges a user-entered judge token at `POST /oauth/judge`; tokens
 stay in page memory, never in source or browser storage. Reconnect after one hour.
-No LLM service or external action is called. Read tools return untrusted data;
+No LLM service or real household action is called; optional speech uses Amazon Polly. Read tools return untrusted data;
 spoken answers use labelled, sanitized quotes and raw atoms stay in structuredContent.
 
 `MCP_DISABLED=1` returns 503 before authentication. Rate bindings enforce approximately
@@ -163,3 +163,44 @@ Open `/demo` on the local Worker for voice/text input, simulated household
 activities, explanations, weekly changes and server-verified trace cards.
 See [DEMO.md](DEMO.md) for local setup, the seven-turn script and browser evidence.
 The demo uses the same authenticated MCP Streamable HTTP endpoint as other clients.
+
+## AWS services used
+
+Amazon Polly provides optional natural speech for the demo's **Read answers aloud**
+setting. The browser sends `POST /tts` with its existing Bearer credential and
+`{"text":"Recorded answer"}`. The Worker applies the MCP origin checks, authentication,
+and IP/subject rate limits, sanitizes text with the decision-text sanitizer, and
+rejects empty text or more than 300 sanitized characters with 400 (oversized HTTP
+bodies return 413). It signs a plain-text `SynthesizeSpeech` request using stdlib
+HMAC/SHA-256 AWS SigV4 and returns MP3 as `audio/mpeg` with `Cache-Control: no-store`.
+Text is sent to AWS only when speech is requested; credentials stay on the Worker.
+
+Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` using Worker secrets or local
+`.dev.vars`; temporary credentials may also supply `AWS_SESSION_TOKEN`. Optional
+settings are `AWS_REGION` (default `us-west-2`), `POLLY_VOICE` (default `Ruth`), and
+`POLLY_ENGINE` (default `generative`). A generative request retries once with
+`neural` only for Polly's `EngineNotSupportedException`. Other failures and missing
+configuration return 503 `voice unavailable`; upstream errors and credentials
+are not logged. This is Amazon Polly, not Alexa's proprietary voice.
+
+The least-privilege IAM policy for the signing identity is:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{"Effect": "Allow", "Action": "polly:SynthesizeSpeech", "Resource": "*"}]
+}
+```
+
+No AWS SDK is bundled. Integration references:
+[AWS SigV4 signing](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html)
+and [Polly SynthesizeSpeech](https://docs.aws.amazon.com/polly/latest/APIReference/API_SynthesizeSpeech.html).
+This documents the AWS integration for the AWS Builder mini-challenge; live AWS
+credentials, synthesis quality, and deployment remain operator validation steps.
+
+If fetching or playing MP3 fails, the demo explicitly selects an installed English
+browser voice, preferring Natural, Neural, Enhanced, Premium, Siri or Google voices,
+then en-US. It avoids an unqualified default voice; if no eligible voice exists,
+the answer remains visible without speech. Stop, disabling speech, reconnecting,
+or starting the microphone cancels playback and pending speech. No audio is stored
+in browser storage. Browser voice quality and autoplay policies depend on the device.

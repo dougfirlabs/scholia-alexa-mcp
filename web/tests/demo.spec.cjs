@@ -97,8 +97,11 @@ test('voice transcript is reviewed before recording and keyboard submits', async
       stop() { this.onend(); }
     };
     window.spoken = [];
+    window.speechSynthesis.getVoices = () => [{name: 'Google US English', lang: 'en-US', default: false}];
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
     window.speechSynthesis.speak = utterance => window.spoken.push(utterance.text);
   });
+  await page.route('**/tts', route => route.fulfill({status: 503, json: {error: 'voice unavailable'}}));
   await page.goto(`${baseURL}/demo/`);
   await page.getByLabel('MCP access token').fill(token);
   await page.getByLabel('Demo household', {exact: true}).fill(`voice-${Date.now()}`);
@@ -110,7 +113,7 @@ test('voice transcript is reviewed before recording and keyboard submits', async
   await expect(page.locator('#prompt')).toBeEnabled();
   await page.locator('#prompt').press('Enter');
   await expect(page.locator('#activity')).toContainText('Coffee refill added');
-  expect(await page.evaluate(() => window.spoken)).toEqual(['Coffee refill added to the simulated order.']);
+  await expect.poll(() => page.evaluate(() => window.spoken)).toEqual(['Coffee refill added to the simulated order.']);
 });
 
 test('demo assets are public while MCP and private paths remain protected', async ({request}) => {

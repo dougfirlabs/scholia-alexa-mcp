@@ -35,11 +35,62 @@ function controls() {
   $('connect').disabled = busy || listening;
   for (const button of document.querySelectorAll('[data-prompt]')) button.disabled = !connected || busy || listening;
 }
-function say(text) {
-  if ($('speak').checked && 'speechSynthesis' in window) {
-    speechSynthesis.cancel();
-    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+let speechGeneration = 0, speechRequest = null, speechAudio = null, speechURL = null;
+function stopSpeaking() {
+  speechGeneration++;
+  speechRequest?.abort(); speechRequest = null;
+  if (speechAudio) { speechAudio.pause(); speechAudio.src = ''; speechAudio = null; }
+  if (speechURL) { URL.revokeObjectURL(speechURL); speechURL = null; }
+  window.speechSynthesis?.cancel();
+}
+function bestVoice(voices) {
+  const quality = voice => /Natural|Neural|Enhanced|Premium|Siri|Google/i.test(voice.name);
+  return voices.filter(voice => /^en(?:-|_)/i.test(voice.lang) && (!voice.default || quality(voice)))
+    .sort((a, b) => (Number(quality(b)) * 2 + Number(/^en-US$/i.test(b.lang))) -
+      (Number(quality(a)) * 2 + Number(/^en-US$/i.test(a.lang))))[0];
+}
+async function browserSpeech(text, generation) {
+  if (!window.speechSynthesis) return;
+  if (!speechSynthesis.getVoices().length) {
+    await new Promise(resolve => {
+      const done = () => { clearTimeout(timer); speechSynthesis.removeEventListener('voiceschanged', done); resolve(); };
+      const timer = setTimeout(done, 1000);
+      speechSynthesis.addEventListener('voiceschanged', done, {once: true});
+    });
   }
+  if (generation !== speechGeneration || !$('speak').checked) return;
+  const voice = bestVoice(speechSynthesis.getVoices());
+  if (!voice) return; // Keep the visible answer when only a default robot voice exists.
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.voice = voice; utterance.lang = voice.lang;
+  speechSynthesis.speak(utterance);
+}
+async function say(text) {
+  stopSpeaking();
+  if (!$('speak').checked) return;
+  const generation = speechGeneration;
+  const controller = new AbortController(); speechRequest = controller;
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch('/tts', {method: 'POST', signal: controller.signal,
+      headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({text: Array.from(text).slice(0, 300).join('')})});
+    if (!response.ok) { await response.arrayBuffer(); throw new Error('Voice unavailable'); }
+    const blob = await response.blob();
+    if (generation !== speechGeneration || !$('speak').checked) return;
+    speechURL = URL.createObjectURL(blob);
+    speechAudio = new Audio(speechURL);
+    speechAudio.onended = () => { if (generation === speechGeneration) stopSpeaking(); };
+    speechAudio.onerror = () => {
+      if (generation !== speechGeneration) return;
+      stopSpeaking(); void browserSpeech(text, speechGeneration);
+    };
+    await speechAudio.play();
+  } catch {
+    if (generation === speechGeneration && $('speak').checked) {
+      stopSpeaking(); await browserSpeech(text, speechGeneration);
+    }
+  } finally { clearTimeout(timer); }
 }
 function card(text, user = false) {
   const article = document.createElement('article');
@@ -129,6 +180,7 @@ async function submit(text) {
 }
 $('connect-form').addEventListener('submit', async event => {
   event.preventDefault(); if (busy) return;
+  stopSpeaking();
   busy = true; connected = false; controls();
   token = $('token').value; household = $('household').value; version = '';
   $('connection').textContent = 'Connecting…';
@@ -151,7 +203,8 @@ $('connect-form').addEventListener('submit', async event => {
 });
 $('ask-form').addEventListener('submit', event => { event.preventDefault(); submit($('prompt').value); });
 for (const button of document.querySelectorAll('[data-prompt]')) button.addEventListener('click', () => submit(button.dataset.prompt));
-$('stop').addEventListener('click', () => window.speechSynthesis?.cancel());
+$('stop').addEventListener('click', stopSpeaking);
+$('speak').addEventListener('change', stopSpeaking);
 if (recognition) {
   recognition.lang = 'en-US'; recognition.continuous = false; recognition.interimResults = false;
   recognition.onresult = event => { $('prompt').value = event.results[0][0].transcript; $('status').textContent = 'Review the transcript, then press Send.'; };
@@ -159,7 +212,7 @@ if (recognition) {
   recognition.onend = () => { listening = false; $('mic').textContent = 'Mic'; $('mic').setAttribute('aria-label', 'Start voice input'); controls(); };
   $('mic').addEventListener('click', () => {
     if (listening) { recognition.stop(); return; }
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
     try { recognition.start(); listening = true; $('mic').textContent = 'Stop'; $('mic').setAttribute('aria-label', 'Stop voice input'); $('status').textContent = 'Listening… tap Stop when finished.'; controls(); }
     catch { $('status').textContent = 'Could not start the microphone. Type instead.'; }
   });
